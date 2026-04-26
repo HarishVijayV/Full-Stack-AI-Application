@@ -8,14 +8,14 @@ By combining **Retrieval-Augmented Generation (RAG)** with a multi-agent orchest
 
 ##  Key Features
 
-*  Agentic Workflow (LangGraph):** Orchestrates four specialized agents:
+*  Agentic Workflow (LangGraph): Orchestrates four specialized agents:
    **Researcher:** Scrapes real-time regional food data using Tavily.
    **Chef:** Crafts 7-day meal plans based on patient vitals and allergies.
    **Auditor:** A RAG-powered agent that cross-references plans against 4+ clinical PDFs.
    **Judge:** Provides a final clinical verdict and protein-gap analysis.
-* ** Specialized RAG:** Uses a **fine-tuned MiniLM-L6-v2 embedding model** and ChromaDB to verify food safety against medical literature.
-* ** Resilient Architecture:** Implements a **Fallback & Degradation strategy** across three Gemini models (2.0 Flash, 1.5 Flash, 1.5 Flash-8b) to maintain 100% uptime.
-* ** Knowledge Graph:** Dynamically generates an interactive SQLite-backed food graph for different Indian states (Tamil Nadu, Kerala, Punjab, etc.).
+* Specialized RAG: Uses a **fine-tuned MiniLM-L6-v2 embedding model** and ChromaDB to verify food safety against medical literature.
+* Resilient Architecture: Implements a **Fallback & Degradation strategy** across three Gemini models (2.0 Flash, 1.5 Flash, 1.5 Flash-8b) to maintain 100% uptime.
+* Knowledge Graph: Dynamically generates an interactive SQLite-backed food graph for different Indian states (Tamil Nadu, Kerala, Punjab, etc.).
 
 ---
 
