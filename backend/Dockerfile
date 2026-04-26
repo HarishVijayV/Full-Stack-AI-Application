@@ -14,8 +14,12 @@ COPY ./chroma_db ./chroma_db
 COPY ./medical_docs ./medical_docs
 
 COPY . .
+
+# Initialize the SQLite database
 RUN python -c "from main import init_db; init_db()" 2>/dev/null || true
 
-EXPOSE 8000
+# Hugging Face Spaces uses port 7860
+EXPOSE 7860
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Update CMD to use port 7860
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
