@@ -1,0 +1,12 @@
+# Create the .gitignore file and add the rules
+node_modules/
+.env
+.env.local
+backend/nutriguard.db
+backend/chroma_db/
+backend/medical_docs/
+backend/nutriguard_embedding_model/
+__pycache__/
+.venv/
+.next/
+dist/
