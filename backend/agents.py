@@ -20,11 +20,23 @@ load_dotenv()
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Fallback model list — tries in order
+# # Fallback model list — tries in order
+# LLM_MODELS = [
+#     "gemini-3.1-flash-lite-preview",
+#     "gemini-2.0-flash",
+#     "gemini-1.5-flash",
+# ]
+
+# LLM_MODELS = [
+#     "gemini-2.0-flash-exp",   # Best balance for free tier
+#     "gemini-1.5-flash-8b",    # The most "exhaustion-proof" model
+#     "gemini-2.0-flash-lite", # High speed, low quota usage
+# ]
+
 LLM_MODELS = [
-    "gemini-3.1-flash-lite-preview",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
+    "gemini-2.5-flash",       # Primary: Most stable 2026 workhorse
+    "gemini-2.0-flash",       # Fallback 1: Fast, but watch your quota
+    "gemini-2.5-flash-lite",  # Fallback 2: Ultra-fast, lower quota usage
 ]
 
 

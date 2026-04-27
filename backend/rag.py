@@ -3,13 +3,15 @@ rag.py — Medical Auditor
 Uses your fine-tuned embedding model + ChromaDB to verify food safety.
 Run index_pdfs() once to build the DB, then use audit_food() per request.
 """
+# CHANGE THIS:
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
 
+# TO THIS:
 import os
 from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
-# from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()

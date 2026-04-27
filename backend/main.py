@@ -28,11 +28,23 @@ load_dotenv()
 
 app = FastAPI(title="NutriGuard Pro", version="1.0.0")
 
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+
+from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=False, # Change to False if you don't need cookies/auth
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"], # This helps the frontend see the response
 )
 
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
@@ -341,6 +353,5 @@ async def generate_plan(patient: PatientData):
 
 if __name__ == "__main__":
     import uvicorn
-    print("[main.py] Starting server on http://localhost:8000")
-    # uvicorn.run("main:app", host="0.0.0.0", port=7860)
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    print("[main.py] Starting server on http://localhost:8000 or hosted online platform")
+    uvicorn.run("main:app", host="0.0.0.0", port=7860)
