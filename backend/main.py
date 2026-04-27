@@ -1,12 +1,15 @@
 """
 main.py — NutriGuard Pro API
 Routes:
-  GET  /                    → health check
-  GET  /research            → Tavily scrape + save foods for a state
-  GET  /graph               → get graph nodes for a state
-  GET  /states              → list all states already in DB
-  GET  /audit               → quick RAG food safety check
-  POST /generate            → full LangGraph workflow (SSE streaming logs)
+  GET  /          
+  
+  
+  as→ health check
+  GET  /research  → Tavily scrape + save foods for a state
+  GET  /graph     → get graph nodes for a state
+  GET  /states    → list all states already in DB
+  GET  /audit     → quick RAG food safety check
+  POST /generate  → full LangGraph workflow (SSE streaming logs)
 """
 
 import os
@@ -38,9 +41,37 @@ app.add_middleware(
 )
 
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-print("[main.py] NutriGuard Pro API starting up...")
+# ── Dual API key rotation ─────────────────────────────────────────
+_raw_keys = [
+    os.getenv("GOOGLE_API_KEY_1"),
+    os.getenv("GOOGLE_API_KEY_2"),
+    os.getenv("GOOGLE_API_KEY"),
+]
+seen: set = set()
+API_KEYS = [k for k in _raw_keys if k and not (k in seen or seen.add(k))]
+
+LLM_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
+]
+
+print(f"[main.py] NutriGuard Pro starting — {len(API_KEYS)} Gemini API key(s) loaded")
+
+
+def call_gemini(prompt: str) -> str:
+    """Try every (model, key) combination until one succeeds."""
+    config = types.GenerateContentConfig(response_mime_type="application/json")
+    for model in LLM_MODELS:
+        for key in API_KEYS:
+            try:
+                client = genai.Client(api_key=key)
+                resp = client.models.generate_content(model=model, contents=prompt, config=config)
+                return resp.text
+            except Exception as e:
+                print(f"[main.py] {model} failed: {e}")
+    raise Exception("All Gemini models and keys failed")
 
 
 # ── SQLite setup ──────────────────────────────────────────────────
@@ -83,26 +114,6 @@ def init_db():
 init_db()
 
 
-# ── Gemini helper ─────────────────────────────────────────────────
-LLM_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.5-flash-lite",
-]
-
-def call_gemini(prompt: str) -> str:
-    config = types.GenerateContentConfig(response_mime_type="application/json")
-    for model in LLM_MODELS:
-        try:
-            resp = gemini_client.models.generate_content(
-                model=model, contents=prompt, config=config
-            )
-            return resp.text
-        except Exception as e:
-            print(f"[main.py] {model} failed: {e}")
-    raise Exception("All models failed")
-
-
 # ── Health ────────────────────────────────────────────────────────
 @app.get("/")
 def health():
@@ -115,18 +126,14 @@ def get_states():
     conn = get_db()
     rows = conn.execute("SELECT DISTINCT state FROM food_nodes").fetchall()
     conn.close()
-    states = [r["state"] for r in rows]
-    print(f"[GET /states] {states}")
-    return {"states": states}
+    return {"states": [r["state"] for r in rows]}
 
 
 # ── Get graph nodes for a state ───────────────────────────────────
 @app.get("/graph")
 def get_graph(state: str):
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM food_nodes WHERE state = ?", (state,)
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM food_nodes WHERE state = ?", (state,)).fetchall()
     conn.close()
 
     if not rows:
@@ -134,11 +141,10 @@ def get_graph(state: str):
 
     nodes = [{"id": "India", "group": "country"}]
     links = []
-
     nodes.append({"id": state, "group": "state"})
     links.append({"source": "India", "target": state})
 
-    categories_added = set()
+    categories_added: set = set()
     for r in rows:
         cat = r["category"] or "General"
         cat_id = f"{state}-{cat}"
@@ -146,18 +152,11 @@ def get_graph(state: str):
             nodes.append({"id": cat_id, "label": cat, "group": "category"})
             links.append({"source": state, "target": cat_id})
             categories_added.add(cat_id)
-
         food_id = f"{r['food_name']}-{r['id']}"
-        nodes.append({
-            "id": food_id,
-            "label": r["food_name"],
-            "group": "food",
-            "safe": bool(r["is_ulcer_safe"]),
-            "reason": r["reason"],
-        })
+        nodes.append({"id": food_id, "label": r["food_name"], "group": "food",
+                      "safe": bool(r["is_ulcer_safe"]), "reason": r["reason"]})
         links.append({"source": cat_id, "target": food_id})
 
-    print(f"[GET /graph] {state} → {len(nodes)} nodes, {len(links)} links")
     return {"nodes": nodes, "links": links, "state": state}
 
 
@@ -173,10 +172,8 @@ def research_state(state: str):
     conn.close()
 
     if existing["cnt"] > 0:
-        print(f"[GET /research] {state} already in DB, returning existing graph")
         return {**get_graph(state), "cached": True}
 
-    print(f"[GET /research] Scraping web for {state}...")
     all_text = ""
     queries = [
         f"Traditional {state} breakfast foods ulcerative colitis safe",
@@ -191,20 +188,18 @@ def research_state(state: str):
         except Exception as e:
             print(f"[GET /research] Tavily error: {e}")
 
-    print(f"[GET /research] Extracting foods with Gemini...")
     prompt = f"""
 You are a Medical Nutrition expert. Extract traditional foods from {state}, India
 that are safe for Ulcerative Colitis patients.
 
 From this text: {all_text[:2000]}
 
-Return a JSON array with AT LEAST 30 food items (8 breakfast, 8 lunch, 8 dinner, 6 snack). Step 2 — add extra well-known safe traditional dishes from that state you are confident about:
+Return a JSON array with AT LEAST 30 food items (8 breakfast, 8 lunch, 8 dinner, 6 snack).
+Also add well-known safe traditional dishes from that state you are confident about:
 [
   {{"food": "Idli", "category": "Breakfast", "reason": "Steamed, low fiber, easy to digest"}},
-  {{"food": "Curd Rice", "category": "Lunch", "reason": "Probiotic, cooling, gut friendly"}},
-  ...
+  {{"food": "Curd Rice", "category": "Lunch", "reason": "Probiotic, cooling, gut friendly"}}
 ]
-
 Only include: steamed, boiled, soft, low-fiber, non-spicy foods.
 Exclude: fried, spicy, raw, high-fiber foods.
 """
@@ -213,7 +208,6 @@ Exclude: fried, spicy, raw, high-fiber foods.
     try:
         foods = json.loads(raw)
     except Exception:
-        print("[GET /research] JSON parse failed, using fallback foods")
         foods = [
             {"food": "Steamed Idli", "category": "Breakfast", "reason": "Steamed, easy to digest"},
             {"food": "Curd Rice", "category": "Lunch", "reason": "Probiotic, gut friendly"},
@@ -229,7 +223,6 @@ Exclude: fried, spicy, raw, high-fiber foods.
         )
     conn.commit()
     conn.close()
-    print(f"[GET /research] Saved {len(foods)} foods for {state}")
 
     return {**get_graph(state), "cached": False, "foods_found": len(foods)}
 
@@ -237,9 +230,37 @@ Exclude: fried, spicy, raw, high-fiber foods.
 # ── Quick audit ───────────────────────────────────────────────────
 @app.get("/audit")
 def quick_audit(food: str):
-    print(f"[GET /audit] Checking: {food}")
     result = audit_food(food)
     return {"food": food, "safety_hint": result["safety_hint"], "evidence": result["evidence"]}
+
+
+# ── Evaluation scores ─────────────────────────────────────────────
+def compute_eval_scores(audit_result: dict, iterations: int, model_used: str) -> dict:
+    flags = audit_result.get("flags", [])
+    audit_safety = max(0, 100 - len(flags) * 20)
+    if audit_result.get("status") == "APPROVED":
+        audit_safety = max(audit_safety, 75)
+
+    iter_efficiency = 100 if iterations == 0 else 60 if iterations == 1 else 35
+
+    model_scores = {
+        "gemini-2.5-flash": 100,
+        "gemini-2.0-flash": 78,
+        "gemini-2.5-flash-lite": 55,
+        "none": 0,
+    }
+    model_reliability = model_scores.get(model_used, 70)
+    used_fallback = model_used not in ("gemini-2.5-flash", "")
+
+    return {
+        "audit_safety": audit_safety,
+        "iter_efficiency": iter_efficiency,
+        "model_reliability": model_reliability,
+        "used_fallback": used_fallback,
+        "flag_count": len(flags),
+        "iterations": iterations,
+        "model_used": model_used or "gemini-2.5-flash",
+    }
 
 
 # ── Generate plan with SSE logs ───────────────────────────────────
@@ -252,78 +273,23 @@ class PatientData(BaseModel):
     allergies: str = "None"
 
 
-def compute_eval_scores(audit_result: dict, iterations: int, model_used: str) -> dict:
-    """
-    Derive real evaluation scores from actual pipeline results.
-    No hardcoded values — everything comes from what the agents actually did.
-    """
-    flags = audit_result.get("flags", [])
-    flag_count = len(flags)
-
-    # Audit Safety Score: starts at 100, minus 20 per unsafe flag found
-    audit_safety = max(0, 100 - flag_count * 20)
-    if audit_result.get("status") == "APPROVED":
-        audit_safety = max(audit_safety, 75)  # approved = at least 75
-
-    # Iteration Efficiency: 100 if no retry needed, 60 if one retry happened
-    if iterations == 0:
-        iter_efficiency = 100
-    elif iterations == 1:
-        iter_efficiency = 60
-    else:
-        iter_efficiency = 35
-
-    # Model Reliability: which model in the fallback chain responded
-    MODEL_SCORES = {
-        "gemini-2.5-flash": 100,
-        "gemini-2.0-flash": 78,
-        "gemini-2.5-flash-lite": 55,
-        "none": 0,
-    }
-    model_reliability = MODEL_SCORES.get(model_used, 70)
-
-    # Fallback triggered?
-    used_fallback = model_used not in ("gemini-2.5-flash", "")
-
-    return {
-        "audit_safety": audit_safety,
-        "iter_efficiency": iter_efficiency,
-        "model_reliability": model_reliability,
-        "used_fallback": used_fallback,
-        "flag_count": flag_count,
-        "iterations": iterations,
-        "model_used": model_used or "gemini-2.5-flash",
-    }
-
-
 @app.post("/generate")
 async def generate_plan(patient: PatientData):
-    """
-    Streams real-time logs to frontend while agents work.
-    Uses Server-Sent Events (SSE).
-    """
     print(f"[POST /generate] Starting for: {patient.name}")
 
     async def event_stream():
-        logs = []
-
         def log(msg: str):
-            logs.append(msg)
             return f"data: {json.dumps({'log': msg})}\n\n"
 
         yield log(f"Starting NutriGuard workflow for {patient.name}...")
         yield log(f"Patient: {patient.age}y, {patient.weight}kg, Region: {patient.state_name}")
         await asyncio.sleep(0.1)
-
         yield log("Node 1 — Researcher: Searching regional foods...")
         await asyncio.sleep(0.2)
-
         yield log("Node 2 — Chef Agent: Building 7-day meal plan...")
         await asyncio.sleep(0.2)
-
         yield log("Node 3 — Auditor: Checking against clinical PDFs (RAG)...")
         await asyncio.sleep(0.2)
-
         yield log("Node 4 — Judge: Gemini generating final verdict...")
         await asyncio.sleep(0.2)
 
@@ -340,7 +306,7 @@ async def generate_plan(patient: PatientData):
             if not protein_note and patient.protein_req > 60:
                 protein_note = "Supplement: Whey Protein Isolate 20g/day (unflavored, mixed in warm water)"
                 plan_data["protein_note"] = protein_note
-                yield log(f"Protein gap detected — adding supplement: {protein_note}")
+                yield log(f"Protein gap detected — supplement recommended")
 
             conn = get_db()
             conn.execute(
@@ -354,15 +320,12 @@ async def generate_plan(patient: PatientData):
             audit_result = result.get("audit_result", {})
             iterations = result.get("iterations", 0)
             model_used = result.get("model_used", "gemini-2.5-flash")
-
-            # Real evaluation scores derived from pipeline results
             eval_scores = compute_eval_scores(audit_result, iterations, model_used)
 
-            audit_status = audit_result.get("status", "APPROVED")
-            yield log(f"Audit status: {audit_status} · Flags: {eval_scores['flag_count']}")
-            yield log(f"Chef retries: {iterations} · Model: {model_used}")
+            yield log(f"Audit: {audit_result.get('status', 'APPROVED')} — {eval_scores['flag_count']} flag(s)")
+            yield log(f"Chef retries: {iterations} — Model: {model_used}")
             yield log(f"Verdict: {plan_data.get('verdict', 'CAUTION')}")
-            yield log("Workflow complete! Plan ready for doctor review.")
+            yield log("Workflow complete. Plan ready for doctor review.")
 
             yield f"data: {json.dumps({'done': True, 'plan': plan_data, 'audit': audit_result, 'eval': eval_scores})}\n\n"
 
@@ -375,5 +338,4 @@ async def generate_plan(patient: PatientData):
 
 if __name__ == "__main__":
     import uvicorn
-    print("[main.py] Starting server on http://localhost:8000 or hosted online platform")
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 7860)))

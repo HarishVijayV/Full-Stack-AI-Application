@@ -1,11 +1,12 @@
 """
 agents.py — Agentic Engine (LangGraph only, no CrewAI)
 Flow: Researcher → Chef → Auditor → Judge
-Fallback: tries 3 Gemini models in order if one fails
-Retry: if Auditor rejects, Chef retries (max 2x)
+Fallback: tries 3 Gemini models × 2 API keys if one fails
+Retry: if Auditor rejects, Chef retries (max 1x)
 """
 
 import os
+import itertools
 from typing import TypedDict
 from dotenv import load_dotenv
 from tavily import TavilyClient
@@ -17,7 +18,22 @@ from rag import audit_food
 load_dotenv()
 
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
+# ── Dual API key rotation ─────────────────────────────────────────
+_api_keys = [k for k in [
+    os.getenv("GOOGLE_API_KEY_1"),
+    os.getenv("GOOGLE_API_KEY_2"),
+    os.getenv("GOOGLE_API_KEY"),   # fallback to single key if only one set
+] if k]
+
+# Remove duplicates while preserving order
+seen = set()
+API_KEYS = [k for k in _api_keys if not (k in seen or seen.add(k))]
+
+if not API_KEYS:
+    raise RuntimeError("No Gemini API key found. Set GOOGLE_API_KEY_1 or GOOGLE_API_KEY.")
+
+print(f"[agents.py] Loaded {len(API_KEYS)} Gemini API key(s)")
 
 LLM_MODELS = [
     "gemini-2.5-flash",
@@ -28,23 +44,29 @@ LLM_MODELS = [
 
 def call_gemini(prompt: str, json_mode: bool = True) -> tuple[str, str]:
     """
-    Call Gemini with automatic model fallback.
+    Try every (model, api_key) combination until one works.
     Returns (response_text, model_name_used).
+    Outer loop: models. Inner loop: API keys.
+    This way key 2 is only used when key 1 is exhausted for that model.
     """
     config = types.GenerateContentConfig(
         response_mime_type="application/json" if json_mode else "text/plain"
     )
     for model in LLM_MODELS:
-        try:
-            print(f"  [LLM] Trying {model}...")
-            resp = gemini_client.models.generate_content(
-                model=model, contents=prompt, config=config
-            )
-            print(f"  [LLM] Success with {model}")
-            return resp.text, model
-        except Exception as e:
-            print(f"  [LLM] {model} failed: {e}")
-    fallback_text = '{"error": "all models failed", "verdict": "CAUTION", "plan": {}}'
+        for key in API_KEYS:
+            try:
+                client = genai.Client(api_key=key)
+                key_label = f"key{'1' if key == API_KEYS[0] else '2'}"
+                print(f"  [LLM] Trying {model} with {key_label}...")
+                resp = client.models.generate_content(
+                    model=model, contents=prompt, config=config
+                )
+                print(f"  [LLM] Success: {model} / {key_label}")
+                return resp.text, model
+            except Exception as e:
+                print(f"  [LLM] {model} failed: {e}")
+
+    fallback_text = '{"error": "all models and keys failed", "verdict": "CAUTION", "plan": {}}'
     return fallback_text, "none"
 
 
@@ -61,7 +83,7 @@ class NutriState(TypedDict):
     audit_result: dict
     final_plan: str
     iterations: int
-    model_used: str      # which Gemini model actually responded
+    model_used: str
 
 
 # ── Node 1: Researcher ────────────────────────────────────────────
@@ -83,8 +105,7 @@ def researcher_node(state: NutriState) -> NutriState:
     if rows:
         lines = [f"{r['category']}: {r['food_name']} — {r['reason']}" for r in rows]
         state["raw_foods"] = "\n".join(lines)
-        print(f"  [Researcher] Loaded {len(rows)} foods from SQLite knowledge graph")
-
+        print(f"  [Researcher] Loaded {len(rows)} foods from SQLite")
         try:
             results = tavily.search(
                 query=f"Traditional {state['state_name']} dishes safe for ulcerative colitis",
@@ -92,7 +113,6 @@ def researcher_node(state: NutriState) -> NutriState:
             )
             extra = [r.get("content", "")[:150] for r in results["results"][:3]]
             state["raw_foods"] += "\n\nAdditional web context:\n" + "\n".join(extra)
-            print(f"  [Researcher] Supplemented with {len(extra)} fresh Tavily results")
         except Exception as e:
             print(f"  [Researcher] Tavily supplement skipped: {e}")
     else:
@@ -104,7 +124,6 @@ def researcher_node(state: NutriState) -> NutriState:
             )
             lines = [r["title"] + ": " + r.get("content", "")[:200] for r in results["results"]]
             state["raw_foods"] = "\n".join(lines)
-            print(f"  [Researcher] Got {len(lines)} results from web")
         except Exception as e:
             print(f"  [Researcher] Tavily failed: {e} — using hardcoded fallback")
             state["raw_foods"] = (
@@ -121,8 +140,7 @@ def chef_node(state: NutriState) -> NutriState:
     retry_note = ""
     if state.get("audit_result", {}).get("status") == "REJECTED":
         flags = state["audit_result"].get("flags", [])
-        retry_note = f"\nPREVIOUS PLAN WAS REJECTED. Avoid these: {', '.join(flags)}"
-        print(f"  [Chef] Retrying — avoiding: {flags}")
+        retry_note = f"\nPREVIOUS PLAN REJECTED. Strictly avoid: {', '.join(flags)}"
 
     prompt = f"""
 You are a Clinical Nutritionist specializing in Ulcerative Colitis (IBD).
@@ -156,10 +174,8 @@ Return JSON:
 """
     text, model = call_gemini(prompt)
     state["meal_plan"] = text
-    # Only update model_used if not already set by judge (chef runs first)
     if not state.get("model_used"):
         state["model_used"] = model
-    print(f"  [Chef] Meal plan generated using {model}")
     return state
 
 
@@ -176,7 +192,6 @@ def auditor_node(state: NutriState) -> NutriState:
             result = audit_food(word)
             if result["safety_hint"] == "UNSAFE":
                 flags.append(word)
-                print(f"  [Auditor] FLAG: '{word}' is UNSAFE per clinical PDFs")
 
     if flags:
         state["audit_result"] = {
@@ -184,15 +199,12 @@ def auditor_node(state: NutriState) -> NutriState:
             "flags": flags,
             "message": f"Unsafe items found: {flags}. Chef must retry.",
         }
-        print(f"  [Auditor] REJECTED — {len(flags)} unsafe items")
     else:
         state["audit_result"] = {
             "status": "APPROVED",
             "flags": [],
             "message": "Plan is clinically safe per PDF guidelines.",
         }
-        print(f"  [Auditor] APPROVED")
-
     return state
 
 
@@ -202,12 +214,11 @@ def judge_node(state: NutriState) -> NutriState:
 
     prompt = f"""
 You are a Senior Clinical Nutrition Director.
-Review this 7-day meal plan for an Ulcerative Colitis patient and provide a final verdict.
+Review this 7-day meal plan for an Ulcerative Colitis patient.
 
 Patient: {state['patient_name']}, {state['age']}y, {state['weight']}kg
 Region: {state['state_name']}
 Audit result: {state['audit_result']['message']}
-
 Meal plan: {state['meal_plan'][:1500]}
 
 Return JSON:
@@ -220,9 +231,7 @@ Return JSON:
 """
     text, model = call_gemini(prompt)
     state["final_plan"] = text
-    # Judge is last — record the model it used as the final one
     state["model_used"] = model
-    print(f"  [Judge] Final plan ready using {model}")
     return state
 
 
@@ -230,9 +239,7 @@ Return JSON:
 def should_retry(state: NutriState) -> str:
     if state["audit_result"]["status"] == "REJECTED" and state["iterations"] < 1:
         state["iterations"] += 1
-        print(f"  [LangGraph] Sending back to Chef (retry {state['iterations']})")
         return "retry"
-    print(f"  [LangGraph] Moving to Judge")
     return "finalize"
 
 
@@ -285,5 +292,4 @@ if __name__ == "__main__":
         "state_name": "Kerala",
         "allergies": "Lactose",
     })
-    print("\n=== FINAL PLAN ===")
     print(out["final_plan"][:500])
