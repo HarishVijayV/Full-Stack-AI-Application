@@ -41,24 +41,21 @@ print("[rag.py] ChromaDB loaded. Auditor is ready.")
 
 # ... (Rest of your audit_food and index_pdfs functions remain the same)
 
-# Inside rag.py
-def audit_food(self, meal_description):
-    # Query ChromaDB
-    results = self.collection.query(query_texts=[meal_description], n_results=1)
-    
-    # CALCULATE REAL SCORE: Convert distance to similarity (1 - distance)
-    # ChromaDB distances are often 0.0 to 1.0 (where 0 is a perfect match)
-    raw_distance = results['distances'][0][0]
-    similarity_score = round((1 - raw_distance) * 100, 1) 
+def audit_food(food_name: str) -> dict:
+    """
+    Search clinical PDFs for evidence about food_name.
+    Returns a dict with evidence text and safety hint.
+    """
+    print(f"[rag.py] Auditing: {food_name}")
 
-    # Determine status
-    status = "APPROVED" if similarity_score > 70 else "REJECTED"
-    
-    return {
-        "status": status,
-        "score": similarity_score, # Sending real data to frontend
-        "top_match": results['documents'][0][0][:100] + "..." 
-    }
+    results = db.similarity_search(food_name, k=2)
+
+    if not results:
+        print(f"[rag.py] No PDF evidence found for: {food_name}")
+        return {
+            "evidence": "No specific clinical data found. Proceed with general caution.",
+            "safety_hint": "CAUTION",
+        }
 
     evidence = " | ".join([r.page_content[:300] for r in results])
     print(f"[rag.py] Evidence found ({len(results)} chunks)")
