@@ -20,7 +20,6 @@ export default function FormPage() {
     if (s) setForm(p => ({ ...p, state_name: s }));
   }, []);
 
-  // Only recalculate protein when weight changes
   const prevWeight = useRef("");
   useEffect(() => {
     if (form.weight && form.weight !== prevWeight.current) {
@@ -28,10 +27,6 @@ export default function FormPage() {
       setForm(p => ({ ...p, protein_req: (parseFloat(form.weight) * 1.2).toFixed(1) }));
     }
   }, [form.weight]);
-
-  const update = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm(p => ({ ...p, [field]: e.target.value }));
-  };
 
   const handleSubmit = () => {
     if (!form.name || !form.age || !form.weight || !form.state_name) {
@@ -42,79 +37,124 @@ export default function FormPage() {
     router.push("/generate");
   };
 
-  const inputClass = "w-full px-4 py-3 rounded-xl text-white text-sm outline-none border transition focus:border-indigo-500";
-  const inputStyle = { background: "rgba(255,255,255,0.05)", borderColor: "#1e293b" };
-  const labelClass = "text-slate-400 text-xs uppercase tracking-wider mb-1 block";
+  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div>
+      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+
+  const inputClass =
+    "w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-900 text-sm bg-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition placeholder-gray-400";
 
   return (
-    <div className="min-h-screen p-6 max-w-2xl mx-auto" style={{ background: "linear-gradient(135deg, #020817 0%, #0a0f1e 100%)" }}>
-      <div className="flex items-center justify-between mb-8">
+    <div className="min-h-screen bg-gray-50">
+      {/* Top bar */}
+      <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold" style={{ background: "linear-gradient(90deg,#6366f1,#10b981)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-            🩺 Patient Intake
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Clinical data · Stored in SQLite · Powers the Chef Agent</p>
+          <h1 className="text-lg font-bold text-gray-900">Patient Intake</h1>
+          <p className="text-xs text-gray-400 mt-0.5">Clinical data · Powers the Chef Agent</p>
         </div>
-        <button onClick={() => router.push("/research")} className="text-slate-400 hover:text-white text-sm border border-slate-700 px-3 py-1 rounded-lg transition">← Back</button>
+        <button
+          onClick={() => router.push("/research")}
+          className="text-sm text-gray-500 hover:text-gray-800 border border-gray-200 px-3 py-1.5 rounded-lg transition bg-white"
+        >
+          ← Back
+        </button>
       </div>
 
-      <div className="rounded-2xl p-6 border border-slate-800 space-y-5" style={{ background: "rgba(255,255,255,0.02)" }}>
-        <div>
-          <label className={labelClass}>Patient Name *</label>
-          <input ref={nameRef} className={inputClass} style={inputStyle} placeholder="e.g. Raj Kumar"
-            defaultValue={form.name} onBlur={e => setForm(p => ({ ...p, name: e.target.value }))} />
-        </div>
+      <div className="max-w-xl mx-auto px-6 py-8">
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
+          <Field label="Patient Name *">
+            <input
+              ref={nameRef}
+              className={inputClass}
+              placeholder="e.g. Raj Kumar"
+              defaultValue={form.name}
+              onBlur={e => setForm(p => ({ ...p, name: e.target.value }))}
+            />
+          </Field>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Age (years) *</label>
-            <input ref={ageRef} type="number" className={inputClass} style={inputStyle} placeholder="35"
-              defaultValue={form.age} onBlur={e => setForm(p => ({ ...p, age: e.target.value }))} />
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Age (years) *">
+              <input
+                ref={ageRef}
+                type="number"
+                className={inputClass}
+                placeholder="35"
+                defaultValue={form.age}
+                onBlur={e => setForm(p => ({ ...p, age: e.target.value }))}
+              />
+            </Field>
+            <Field label="Weight (kg) *">
+              <input
+                ref={weightRef}
+                type="number"
+                className={inputClass}
+                placeholder="65"
+                defaultValue={form.weight}
+                onBlur={e => setForm(p => ({ ...p, weight: e.target.value }))}
+              />
+            </Field>
           </div>
-          <div>
-            <label className={labelClass}>Weight (kg) *</label>
-            <input ref={weightRef} type="number" className={inputClass} style={inputStyle} placeholder="65"
-              defaultValue={form.weight} onBlur={e => setForm(p => ({ ...p, weight: e.target.value }))} />
-          </div>
-        </div>
 
-        <div>
-          <label className={labelClass}>Protein Req. (g/day) — auto from weight × 1.2</label>
-          <input ref={proteinRef} type="number" className={inputClass} style={inputStyle}
-            value={form.protein_req} onChange={update("protein_req")} placeholder="78.0" />
-        </div>
+          <Field label="Protein Requirement (g/day) — auto-calculated from weight × 1.2">
+            <input
+              ref={proteinRef}
+              type="number"
+              className={inputClass}
+              value={form.protein_req}
+              onChange={e => setForm(p => ({ ...p, protein_req: e.target.value }))}
+              placeholder="78.0"
+            />
+          </Field>
 
-        <div>
-          <label className={labelClass}>State / Region *</label>
-          <input ref={stateRef} className={inputClass} style={inputStyle} placeholder="e.g. Kerala, Tamil Nadu"
-            defaultValue={form.state_name} onBlur={e => setForm(p => ({ ...p, state_name: e.target.value }))} />
-        </div>
+          <Field label="State / Region *">
+            <input
+              ref={stateRef}
+              className={inputClass}
+              placeholder="e.g. Kerala, Tamil Nadu"
+              defaultValue={form.state_name}
+              onBlur={e => setForm(p => ({ ...p, state_name: e.target.value }))}
+            />
+          </Field>
 
-        <div>
-          <label className={labelClass}>Allergies / Restrictions</label>
-          <input ref={allergyRef} className={inputClass} style={inputStyle} placeholder="e.g. Lactose intolerant, Gluten free"
-            defaultValue={form.allergies} onBlur={e => setForm(p => ({ ...p, allergies: e.target.value }))} />
-        </div>
+          <Field label="Allergies / Dietary Restrictions">
+            <input
+              ref={allergyRef}
+              className={inputClass}
+              placeholder="e.g. Lactose intolerant, Gluten free"
+              defaultValue={form.allergies}
+              onBlur={e => setForm(p => ({ ...p, allergies: e.target.value }))}
+            />
+          </Field>
 
-        {/* Summary */}
-        {form.name && form.weight && (
-          <div className="rounded-xl p-4 border border-indigo-900" style={{ background: "rgba(99,102,241,0.08)" }}>
-            <p className="text-indigo-400 font-semibold text-xs uppercase tracking-wider mb-2">Patient Summary</p>
-            <div className="grid grid-cols-2 gap-2 text-sm text-slate-300">
-              <p>👤 {form.name}</p>
-              <p>📅 {form.age} years</p>
-              <p>⚖️ {form.weight} kg</p>
-              <p>💊 {form.protein_req} g protein/day</p>
-              <p>🗺 {form.state_name}</p>
-              <p>⚠️ {form.allergies}</p>
+          {/* Summary */}
+          {form.name && form.weight && (
+            <div className="rounded-xl bg-blue-50 border border-blue-100 p-4">
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2">
+                Patient Summary
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-sm text-gray-700">
+                <p>{form.name}</p>
+                <p>{form.age} years</p>
+                <p>{form.weight} kg</p>
+                <p>{form.protein_req} g protein/day</p>
+                <p>{form.state_name}</p>
+                <p>{form.allergies}</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <button onClick={handleSubmit} className="w-full py-4 rounded-xl font-bold text-lg transition"
-          style={{ background: "linear-gradient(135deg,#7c3aed,#6366f1)", color: "#fff" }}>
-          🚀 Generate 7-Day Plan →
-        </button>
+          <button
+            onClick={handleSubmit}
+            className="w-full py-3.5 rounded-xl font-bold text-white text-sm bg-blue-600 hover:bg-blue-700 transition"
+          >
+            Generate 7-Day Plan →
+          </button>
+        </div>
       </div>
     </div>
   );
