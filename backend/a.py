@@ -12,7 +12,7 @@ LLM_MODELS = [
 ]
 
 def check_model_health():
-    client = genai.Client(api_key="AIzaSyBZTSNpMyo7L6p17SBCpWW6SY0i_4Ecjdg")
+    # client = genai.Client(api_key="")
     print("--- 🩺 NutriGuard API Health Check ---")
     
     for model_name in LLM_MODELS:
