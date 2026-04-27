@@ -342,4 +342,5 @@ async def generate_plan(patient: PatientData):
 if __name__ == "__main__":
     import uvicorn
     print("[main.py] Starting server on http://localhost:8000")
+    # uvicorn.run("main:app", host="0.0.0.0", port=7860)
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
