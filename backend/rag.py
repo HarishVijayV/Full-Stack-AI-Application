@@ -16,7 +16,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
-MODEL_PATH = os.getenv("MODEL_PATH", "./nutriguard_embedding_model")
+MODEL_PATH = os.getenv("MODEL_PATH", "nutriguard_embedding_model")
 CHROMA_PATH = os.getenv("CHROMA_PATH", "./chroma_db")
 
 print(f"[rag.py] Loading fine-tuned embeddings from: {MODEL_PATH}")
