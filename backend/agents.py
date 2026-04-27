@@ -16,32 +16,21 @@ from rag import audit_food
 
 load_dotenv()
 
-# ── Clients ───────────────────────────────────────────────────────
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# # Fallback model list — tries in order
-# LLM_MODELS = [
-#     "gemini-3.1-flash-lite-preview",
-#     "gemini-2.0-flash",
-#     "gemini-1.5-flash",
-# ]
-
-# LLM_MODELS = [
-#     "gemini-2.0-flash-exp",   # Best balance for free tier
-#     "gemini-1.5-flash-8b",    # The most "exhaustion-proof" model
-#     "gemini-2.0-flash-lite", # High speed, low quota usage
-# ]
-
 LLM_MODELS = [
-    "gemini-2.5-flash",       # Primary: Most stable 2026 workhorse
-    "gemini-2.0-flash",       # Fallback 1: Fast, but watch your quota
-    "gemini-2.5-flash-lite",  # Fallback 2: Ultra-fast, lower quota usage
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
 ]
 
 
-def call_gemini(prompt: str, json_mode: bool = True) -> str:
-    """Call Gemini with automatic model fallback (degradation strategy)."""
+def call_gemini(prompt: str, json_mode: bool = True) -> tuple[str, str]:
+    """
+    Call Gemini with automatic model fallback.
+    Returns (response_text, model_name_used).
+    """
     config = types.GenerateContentConfig(
         response_mime_type="application/json" if json_mode else "text/plain"
     )
@@ -52,10 +41,11 @@ def call_gemini(prompt: str, json_mode: bool = True) -> str:
                 model=model, contents=prompt, config=config
             )
             print(f"  [LLM] Success with {model}")
-            return resp.text
+            return resp.text, model
         except Exception as e:
             print(f"  [LLM] {model} failed: {e}")
-    return '{"error": "all models failed", "verdict": "CAUTION", "plan": {}}'
+    fallback_text = '{"error": "all models failed", "verdict": "CAUTION", "plan": {}}'
+    return fallback_text, "none"
 
 
 # ── LangGraph State ───────────────────────────────────────────────
@@ -71,6 +61,7 @@ class NutriState(TypedDict):
     audit_result: dict
     final_plan: str
     iterations: int
+    model_used: str      # which Gemini model actually responded
 
 
 # ── Node 1: Researcher ────────────────────────────────────────────
@@ -78,7 +69,6 @@ def researcher_node(state: NutriState) -> NutriState:
     print(f"\n[Node 1 — Researcher] Checking SQLite for: {state['state_name']}")
     import sqlite3
 
-    # Step 1: Try SQLite first (from Page 1 research)
     try:
         conn = sqlite3.connect("nutriguard.db")
         conn.row_factory = sqlite3.Row
@@ -94,9 +84,7 @@ def researcher_node(state: NutriState) -> NutriState:
         lines = [f"{r['category']}: {r['food_name']} — {r['reason']}" for r in rows]
         state["raw_foods"] = "\n".join(lines)
         print(f"  [Researcher] Loaded {len(rows)} foods from SQLite knowledge graph")
-        print(f"  [Researcher] Using Page 1 indexed data directly for Chef Agent")
 
-        # Step 2: Quick Tavily supplement
         try:
             results = tavily.search(
                 query=f"Traditional {state['state_name']} dishes safe for ulcerative colitis",
@@ -166,8 +154,12 @@ Return JSON:
   "protein_note": "supplement recommendation or empty string"
 }}
 """
-    state["meal_plan"] = call_gemini(prompt)
-    print(f"  [Chef] Meal plan generated")
+    text, model = call_gemini(prompt)
+    state["meal_plan"] = text
+    # Only update model_used if not already set by judge (chef runs first)
+    if not state.get("model_used"):
+        state["model_used"] = model
+    print(f"  [Chef] Meal plan generated using {model}")
     return state
 
 
@@ -226,8 +218,11 @@ Return JSON:
   "protein_note": "supplement note or empty string"
 }}
 """
-    state["final_plan"] = call_gemini(prompt)
-    print(f"  [Judge] Final plan ready")
+    text, model = call_gemini(prompt)
+    state["final_plan"] = text
+    # Judge is last — record the model it used as the final one
+    state["model_used"] = model
+    print(f"  [Judge] Final plan ready using {model}")
     return state
 
 
@@ -273,6 +268,7 @@ def run_workflow(patient_data: dict) -> dict:
         "audit_result": {},
         "final_plan": "",
         "iterations": 0,
+        "model_used": "",
     }
     print(f"\n[agents.py] ===== Workflow START: {state['patient_name']} =====")
     result = workflow.invoke(state, {"recursion_limit": 10})
@@ -280,7 +276,6 @@ def run_workflow(patient_data: dict) -> dict:
     return result
 
 
-# Quick test
 if __name__ == "__main__":
     out = run_workflow({
         "name": "Test Patient",
