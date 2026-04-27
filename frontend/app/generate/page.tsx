@@ -2,10 +2,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-// const API = "http://localhost:8000";
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const DAYS = ["day1","day2","day3","day4","day5","day6","day7"];
-const DAY_LABELS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const DAY_LABELS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
 export default function GeneratePage() {
   const router = useRouter();
@@ -13,6 +12,7 @@ export default function GeneratePage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [plan, setPlan] = useState<any>(null);
   const [audit, setAudit] = useState<any>(null);
+  const [evalData, setEvalData] = useState<any>(null);
   const [running, setRunning] = useState(false);
   const [approved, setApproved] = useState(false);
   const [patient, setPatient] = useState<any>(null);
@@ -35,6 +35,7 @@ export default function GeneratePage() {
     setRunning(true);
     setPlan(null);
     setAudit(null);
+    setEvalData(null);
     setApproved(false);
     setLogs([]);
 
@@ -61,10 +62,8 @@ export default function GeneratePage() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         const chunk = decoder.decode(value);
         const lines = chunk.split("\n").filter(l => l.startsWith("data: "));
-
         for (const line of lines) {
           const json = line.replace("data: ", "").trim();
           if (!json) continue;
@@ -74,6 +73,7 @@ export default function GeneratePage() {
             if (data.done) {
               if (data.plan) setPlan(data.plan);
               if (data.audit) setAudit(data.audit);
+              if (data.eval) setEvalData(data.eval);
               if (data.error) addLog(`ERROR: ${data.error}`);
             }
           } catch {}
@@ -87,180 +87,223 @@ export default function GeneratePage() {
 
   const handleApprove = () => {
     setApproved(true);
-    localStorage.setItem("approvedPlan", JSON.stringify({ plan, audit, patient }));
-    addLog("✅ Doctor approved the plan. Saving...");
+    // Save eval alongside plan and audit so evaluation page has real data
+    localStorage.setItem("approvedPlan", JSON.stringify({ plan, audit, eval: evalData, patient }));
+    addLog("Doctor approved the plan. Saved.");
   };
 
   const verdictColor = (v: string) =>
-    v === "SAFE" ? "text-green-400" : v === "UNSAFE" ? "text-red-400" : "text-yellow-400";
+    v === "SAFE" ? "#10b981" : v === "UNSAFE" ? "#ef4444" : "#f59e0b";
+
+  const agents = [
+    { label: "Researcher", sub: "Tavily", color: "#10b981" },
+    { label: "Chef", sub: "Gemini", color: "#6366f1" },
+    { label: "Auditor", sub: "RAG", color: "#f59e0b" },
+    { label: "Judge", sub: "Gemini", color: "#a855f7" },
+  ];
 
   return (
-    <div className="min-h-screen p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="min-h-screen" style={{ background: "linear-gradient(135deg,#06040e 0%,#0d0a1f 50%,#0a0716 100%)" }}>
+      {/* Top bar */}
+      <div className="border-b px-6 py-4 flex items-center justify-between"
+        style={{ borderColor: "rgba(139,92,246,0.15)", background: "rgba(0,0,0,0.3)" }}>
         <div>
-          <h1 className="text-3xl font-bold text-purple-400">🤖 Agent Workflow</h1>
-          <p className="text-gray-400 text-sm mt-1">
-            LangGraph · Researcher → Chef → Auditor (RAG) → Judge (Gemini) · Fallback/Degradation
+          <h1 className="text-xl font-bold text-white tracking-tight">Agent Workflow</h1>
+          <p className="text-xs mt-0.5" style={{ color: "#6b7280" }}>
+            LangGraph · Researcher → Chef → Auditor (RAG) → Judge
           </p>
         </div>
-        <button onClick={() => router.push("/form")} className="text-gray-400 hover:text-white text-sm">← Back</button>
+        <button onClick={() => router.push("/form")}
+          className="text-xs px-3 py-1.5 rounded-lg border transition"
+          style={{ borderColor: "rgba(139,92,246,0.3)", color: "#9ca3af" }}>
+          ← Back
+        </button>
       </div>
 
-      {/* Patient info */}
-      {patient && (
-        <div className="bg-gray-900 rounded-xl p-4 mb-6 flex flex-wrap gap-4">
-          <span className="text-gray-300 text-sm">👤 {patient.name}</span>
-          <span className="text-gray-300 text-sm">📅 {patient.age}y</span>
-          <span className="text-gray-300 text-sm">⚖️ {patient.weight}kg</span>
-          <span className="text-gray-300 text-sm">🗺 {patient.state_name}</span>
-          <span className="text-gray-300 text-sm">💊 Protein: {patient.protein_req}g/day</span>
-          <span className="text-gray-300 text-sm">⚠️ {patient.allergies}</span>
-        </div>
-      )}
+      <div className="max-w-7xl mx-auto px-6 py-6 space-y-5">
+        {/* Patient pill */}
+        {patient && (
+          <div className="flex flex-wrap gap-3 items-center px-4 py-3 rounded-xl border"
+            style={{ background: "rgba(139,92,246,0.06)", borderColor: "rgba(139,92,246,0.2)" }}>
+            <span className="text-white text-sm font-medium">{patient.name}</span>
+            <span style={{ color: "#6b7280" }}>·</span>
+            <span className="text-sm" style={{ color: "#9ca3af" }}>{patient.age}y</span>
+            <span style={{ color: "#6b7280" }}>·</span>
+            <span className="text-sm" style={{ color: "#9ca3af" }}>{patient.weight}kg</span>
+            <span style={{ color: "#6b7280" }}>·</span>
+            <span className="text-sm" style={{ color: "#9ca3af" }}>{patient.state_name}</span>
+            <span style={{ color: "#6b7280" }}>·</span>
+            <span className="text-sm" style={{ color: "#9ca3af" }}>Protein: {patient.protein_req}g/day</span>
+          </div>
+        )}
 
-      {/* Agent flow diagram */}
-      <div className="bg-gray-900 rounded-xl p-4 mb-6">
-        <div className="flex items-center justify-center gap-2 flex-wrap">
-          {[
-            { label: "Researcher", sub: "Tavily", color: "bg-emerald-800 border-emerald-500" },
-            { label: "→", sub: "", color: "" },
-            { label: "Chef Agent", sub: "Gemini", color: "bg-blue-800 border-blue-500" },
-            { label: "→", sub: "", color: "" },
-            { label: "Auditor", sub: "RAG+PDFs", color: "bg-orange-800 border-orange-500" },
-            { label: "→", sub: "", color: "" },
-            { label: "Judge", sub: "Gemini", color: "bg-purple-800 border-purple-500" },
-          ].map((n, i) =>
-            n.sub === "" ? (
-              <span key={i} className="text-gray-500 text-xl">→</span>
-            ) : (
-              <div key={i} className={`border rounded-lg px-4 py-2 text-center ${n.color}`}>
-                <p className="text-white text-sm font-semibold">{n.label}</p>
-                <p className="text-gray-400 text-xs">{n.sub}</p>
+        {/* Agent flow */}
+        <div className="flex items-center gap-2 flex-wrap px-4 py-3 rounded-xl border"
+          style={{ background: "rgba(0,0,0,0.3)", borderColor: "rgba(255,255,255,0.06)" }}>
+          {agents.map((a, i) => (
+            <div key={a.label} className="flex items-center gap-2">
+              <div className="px-3 py-1.5 rounded-lg text-xs font-semibold text-center"
+                style={{ background: a.color + "18", border: `1px solid ${a.color}40`, color: a.color }}>
+                <div>{a.label}</div>
+                <div style={{ fontSize: "10px", opacity: 0.7 }}>{a.sub}</div>
               </div>
-            )
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left - logs + generate */}
-        <div className="space-y-4">
-          <button
-            onClick={handleGenerate}
-            disabled={running}
-            className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 text-white py-4 rounded-xl font-bold text-lg transition"
-          >
-            {running ? "⚙️ Agents Working..." : "🚀 Start Agent Workflow"}
-          </button>
-
-          <div className="bg-gray-900 rounded-xl p-4">
-            <h2 className="text-green-400 font-semibold mb-2">📡 Live Agent Logs</h2>
-            <div
-              ref={logRef}
-              className="bg-black rounded-lg p-3 h-80 overflow-y-auto font-mono text-xs space-y-1"
-            >
-              {logs.length === 0 && <p className="text-gray-600">Click Start to begin...</p>}
-              {logs.map((l, i) => (
-                <p key={i} className={l.includes("ERROR") ? "text-red-400" : l.includes("✅") ? "text-emerald-400" : "text-green-300"}>
-                  {l}
-                </p>
-              ))}
-              {running && <p className="text-yellow-400 animate-pulse">● Processing...</p>}
+              {i < agents.length - 1 && <span style={{ color: "#374151" }}>→</span>}
             </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Left */}
+          <div className="space-y-4">
+            <button onClick={handleGenerate} disabled={running}
+              className="w-full py-3.5 rounded-xl font-bold text-white text-sm transition"
+              style={{
+                background: running
+                  ? "rgba(75,85,99,0.5)"
+                  : "linear-gradient(135deg,#7c3aed,#6366f1)",
+                border: running ? "1px solid #374151" : "1px solid rgba(139,92,246,0.4)",
+              }}>
+              {running ? "Agents working..." : "Start Agent Workflow →"}
+            </button>
+
+            {/* Logs */}
+            <div className="rounded-xl border overflow-hidden"
+              style={{ background: "rgba(0,0,0,0.5)", borderColor: "rgba(255,255,255,0.06)" }}>
+              <div className="px-4 py-2.5 border-b flex items-center gap-2"
+                style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs font-semibold" style={{ color: "#10b981" }}>Live Agent Logs</span>
+              </div>
+              <div ref={logRef}
+                className="p-3 h-72 overflow-y-auto font-mono text-xs space-y-1">
+                {logs.length === 0 && <p style={{ color: "#374151" }}>Click Start to begin...</p>}
+                {logs.map((l, i) => (
+                  <p key={i} style={{
+                    color: l.includes("ERROR") ? "#f87171"
+                      : l.includes("approved") ? "#34d399"
+                      : "#6ee7b7"
+                  }}>{l}</p>
+                ))}
+                {running && <p style={{ color: "#fbbf24" }} className="animate-pulse">● Processing...</p>}
+              </div>
+            </div>
+
+            {/* Audit badge */}
+            {audit && (
+              <div className="rounded-xl p-4 border"
+                style={{
+                  background: audit.status === "APPROVED" ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)",
+                  borderColor: audit.status === "APPROVED" ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)",
+                }}>
+                <p className="text-sm font-semibold">
+                  Audit:{" "}
+                  <span style={{ color: audit.status === "APPROVED" ? "#10b981" : "#ef4444" }}>
+                    {audit.status}
+                  </span>
+                </p>
+                <p className="text-xs mt-1" style={{ color: "#9ca3af" }}>{audit.message}</p>
+                {audit.flags?.length > 0 && (
+                  <p className="text-xs mt-1" style={{ color: "#fca5a5" }}>
+                    Flagged: {audit.flags.join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Audit result */}
-          {audit && (
-            <div className={`rounded-xl p-4 border ${audit.status === "APPROVED" ? "bg-green-950 border-green-700" : "bg-red-950 border-red-700"}`}>
-              <p className="font-semibold text-sm">
-                Audit: <span className={audit.status === "APPROVED" ? "text-green-400" : "text-red-400"}>{audit.status}</span>
-              </p>
-              <p className="text-gray-300 text-xs mt-1">{audit.message}</p>
-              {audit.flags?.length > 0 && (
-                <p className="text-red-300 text-xs mt-1">Flagged: {audit.flags.join(", ")}</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Right - 7 day plan */}
-        <div>
-          {!plan && !running && (
-            <div className="bg-gray-900 rounded-xl p-6 h-full flex items-center justify-center">
-              <p className="text-gray-500 text-center">7-day plan will appear here after generation</p>
-            </div>
-          )}
-
-          {plan && (
-            <div className="bg-gray-900 rounded-xl p-4 space-y-4">
-              {/* Verdict */}
-              <div className="flex items-center justify-between">
-                <h2 className="text-white font-bold text-lg">7-Day Meal Plan</h2>
-                <span className={`font-bold text-lg ${verdictColor(plan.verdict)}`}>
-                  {plan.verdict === "SAFE" ? "✅" : plan.verdict === "UNSAFE" ? "❌" : "⚠️"} {plan.verdict}
-                </span>
+          {/* Right — 7-day plan */}
+          <div>
+            {!plan && !running && (
+              <div className="rounded-xl border h-full flex items-center justify-center py-20"
+                style={{ background: "rgba(0,0,0,0.2)", borderColor: "rgba(255,255,255,0.05)" }}>
+                <p className="text-sm text-center" style={{ color: "#4b5563" }}>
+                  7-day plan will appear here
+                </p>
               </div>
+            )}
 
-              {plan.summary && (
-                <p className="text-gray-400 text-sm bg-gray-800 rounded-lg p-3">{plan.summary}</p>
-              )}
-
-              {plan.protein_note && (
-                <div className="bg-blue-950 border border-blue-700 rounded-lg p-3">
-                  <p className="text-blue-300 text-sm">💊 {plan.protein_note}</p>
+            {plan && (
+              <div className="rounded-xl border overflow-hidden"
+                style={{ background: "rgba(0,0,0,0.3)", borderColor: "rgba(255,255,255,0.07)" }}>
+                {/* Header */}
+                <div className="px-4 py-3 border-b flex items-center justify-between"
+                  style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                  <span className="text-white font-semibold text-sm">7-Day Meal Plan</span>
+                  <span className="text-sm font-bold px-3 py-1 rounded-full"
+                    style={{
+                      color: verdictColor(plan.verdict),
+                      background: verdictColor(plan.verdict) + "18",
+                      border: `1px solid ${verdictColor(plan.verdict)}40`,
+                    }}>
+                    {plan.verdict}
+                  </span>
                 </div>
-              )}
 
-              {/* Day tabs */}
-              <div className="flex gap-1 flex-wrap">
-                {DAYS.map((d, i) => (
-                  <button
-                    key={d}
-                    onClick={() => setActiveDay(d)}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                      activeDay === d ? "bg-purple-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                    }`}
-                  >
-                    {DAY_LABELS[i]}
-                  </button>
-                ))}
-              </div>
+                <div className="p-4 space-y-3">
+                  {plan.summary && (
+                    <p className="text-xs rounded-lg p-3" style={{ color: "#9ca3af", background: "rgba(255,255,255,0.03)" }}>
+                      {plan.summary}
+                    </p>
+                  )}
 
-              {/* Active day meals */}
-              {plan.plan?.[activeDay] && (
-                <div className="space-y-2">
-                  {["breakfast","lunch","dinner","snack"].map(meal => (
-                    <div key={meal} className="bg-gray-800 rounded-lg p-3">
-                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">{meal}</p>
-                      <p className="text-white text-sm">{plan.plan[activeDay][meal] || "—"}</p>
+                  {plan.protein_note && (
+                    <div className="rounded-lg p-3 border text-xs"
+                      style={{ background: "rgba(99,102,241,0.1)", borderColor: "rgba(99,102,241,0.3)", color: "#a5b4fc" }}>
+                      {plan.protein_note}
                     </div>
-                  ))}
-                </div>
-              )}
+                  )}
 
-              {/* Doctor approve */}
-              {!approved ? (
-                <button
-                  onClick={handleApprove}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold transition"
-                >
-                  ✅ Doctor Approves Plan
-                </button>
-              ) : (
-                <div className="space-y-2">
-                  <div className="bg-emerald-900 border border-emerald-600 rounded-xl p-3 text-center">
-                    <p className="text-emerald-400 font-bold">✅ Plan Approved & Saved</p>
+                  {/* Day tabs */}
+                  <div className="flex gap-1.5 flex-wrap">
+                    {DAYS.map((d, i) => (
+                      <button key={d} onClick={() => setActiveDay(d)}
+                        className="px-3 py-1 rounded-lg text-xs font-medium transition"
+                        style={{
+                          background: activeDay === d ? "#7c3aed" : "rgba(255,255,255,0.04)",
+                          color: activeDay === d ? "#fff" : "#6b7280",
+                          border: activeDay === d ? "1px solid #7c3aed" : "1px solid transparent",
+                        }}>
+                        {DAY_LABELS[i]}
+                      </button>
+                    ))}
                   </div>
-                  <button
-                    onClick={() => router.push("/evaluation")}
-                    className="w-full bg-orange-600 hover:bg-orange-500 text-white py-3 rounded-xl font-bold transition"
-                  >
-                    View Evaluation →
-                  </button>
+
+                  {/* Meals */}
+                  {plan.plan?.[activeDay] && (
+                    <div className="space-y-2">
+                      {["breakfast","lunch","dinner","snack"].map(meal => (
+                        <div key={meal} className="rounded-lg p-3"
+                          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                          <p className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4b5563" }}>{meal}</p>
+                          <p className="text-sm text-white">{plan.plan[activeDay][meal] || "—"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {!approved ? (
+                    <button onClick={handleApprove}
+                      className="w-full py-3 rounded-xl text-white text-sm font-bold transition"
+                      style={{ background: "linear-gradient(135deg,#059669,#10b981)" }}>
+                      Doctor Approves Plan
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-center py-2 rounded-xl text-sm font-semibold"
+                        style={{ background: "rgba(16,185,129,0.12)", color: "#34d399", border: "1px solid rgba(16,185,129,0.3)" }}>
+                        Plan Approved & Saved
+                      </div>
+                      <button onClick={() => router.push("/evaluation")}
+                        className="w-full py-3 rounded-xl text-white text-sm font-bold transition"
+                        style={{ background: "linear-gradient(135deg,#d97706,#b45309)" }}>
+                        View Evaluation →
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
