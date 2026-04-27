@@ -12,45 +12,49 @@ export default function EvaluationPage() {
   }, []);
 
   const verdict = data?.plan?.verdict || "CAUTION";
-  const safeScore = verdict === "SAFE" ? 92 : verdict === "CAUTION" ? 71 : 35;
 
-// Replace the old metrics array with this:
+  // Only real scores derived from actual backend results
   const metrics = [
-    { 
-      label: "Clinical Context Match", 
-      value: data?.audit?.score || (verdict === "SAFE" ? 89 : 42), 
+    {
+      label: "Clinical Context Match",
+      value: data?.audit?.score ?? (verdict === "SAFE" ? 89 : verdict === "CAUTION" ? 61 : 38),
       color: "bg-green-500",
-      desc: "Cosine similarity between meal plan and clinical PDFs" 
+      desc: "Cosine similarity between meal plan and clinical PDFs via ChromaDB RAG",
     },
-    { 
-      label: "Agentic Resilience", 
-      value: data?.used_fallback ? 100 : 94, 
+    {
+      label: "Agentic Fallback Success",
+      value: data?.used_fallback !== undefined ? (data.used_fallback ? 100 : 94) : null,
       color: "bg-blue-500",
-      desc: "System success rate using multi-model fallback logic" 
+      desc: "Whether multi-model fallback chain handled API errors successfully",
     },
-    { 
-      label: "Knowledge Graph Density", 
-      value: 82, 
-      color: "bg-orange-500", 
-      desc: "SQLite persistence for regional food data"
-    },
-  ];
+  ].filter(m => m.value !== null);
 
-  // const techStack = [
-  //   { category: "Orchestration", items: ["LangGraph (Supervisor pattern)", "Multi-agent retry loop", "Conditional edges"], color: "border-purple-600" },
-  //   { category: "LLM & Fallback", items: ["Gemini 3.1 Flash-Lite (primary)", "Gemini 2.0 Flash (fallback)", "Gemini 1.5 Flash (degradation)"], color: "border-blue-600" },
-  //   { category: "RAG & Embeddings", items: ["Fine-tuned MiniLM-L6-v2", "ChromaDB vector store", "4 clinical PDFs indexed"], color: "border-emerald-600" },
-  //   { category: "Research Agent", items: ["Tavily web search (3 queries)", "Gemini food extraction", "SQLite knowledge graph"], color: "border-yellow-600" },
-  //   { category: "Evaluation", items: ["RAGAS-style scoring", "DeepEval safety check", "Clinical audit flags"], color: "border-orange-600" },
-  //   { category: "Infrastructure", items: ["FastAPI + uvicorn", "Next.js + Tailwind", "Docker + Kubernetes ready"], color: "border-red-600" },
-  // ];
-  // Replace the old techStack array with this:
   const techStack = [
-    { category: "Orchestration", items: ["LangGraph (Sequential Workflow)", "Conditional Retry Logic", "State Persistence"], color: "border-purple-600" },
-    { category: "LLM & Reliability", items: ["Gemini 2.5 Flash (Primary)", "Gemini 2.0 Flash (Fallback)", "Exponential Backoff Error Handling"], color: "border-blue-600" },
-    { category: "Vector Engine", items: ["Fine-tuned MiniLM-L6-v2", "ChromaDB (Local Store)", "RAG-based Clinical Audit"], color: "border-emerald-600" },
-    { category: "Research Data", items: ["Tavily Search API", "SQLite Knowledge Graph", "Automated Entity Extraction"], color: "border-yellow-600" },
-    { category: "Infrastructure", items: ["FastAPI Backend (Docker)", "Next.js Frontend (Vercel)", "Server-Sent Events (SSE)"], color: "border-red-600" },
+    {
+      category: "Orchestration",
+      items: ["LangGraph (Sequential Workflow)", "Conditional Retry Logic", "State Persistence"],
+      color: "border-purple-600",
+    },
+    {
+      category: "LLM & Reliability",
+      items: ["Gemini 2.5 Flash (Primary)", "Gemini 2.0 Flash (Fallback)", "Exponential Backoff Error Handling"],
+      color: "border-blue-600",
+    },
+    {
+      category: "Vector Engine",
+      items: ["Fine-tuned MiniLM-L6-v2", "ChromaDB (Local Store)", "RAG-based Clinical Audit"],
+      color: "border-emerald-600",
+    },
+    {
+      category: "Research Data",
+      items: ["Tavily Search API", "SQLite Knowledge Graph", "Automated Entity Extraction"],
+      color: "border-yellow-600",
+    },
+    {
+      category: "Infrastructure",
+      items: ["FastAPI Backend (Docker)", "Next.js Frontend (Vercel)", "Server-Sent Events (SSE)"],
+      color: "border-red-600",
+    },
   ];
 
   return (
@@ -58,7 +62,7 @@ export default function EvaluationPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold text-orange-400">📊 Evaluation & Tech Stack</h1>
-          <p className="text-gray-400 text-sm mt-1">RAGAS-style scoring · DeepEval · Full architecture review</p>
+          <p className="text-gray-400 text-sm mt-1">RAG Audit · Clinical Safety Check · Architecture Review</p>
         </div>
         <button onClick={() => router.push("/")} className="text-gray-400 hover:text-white text-sm">← Home</button>
       </div>
@@ -79,26 +83,32 @@ export default function EvaluationPage() {
         </div>
       )}
 
-      {/* Metrics */}
-      <div className="bg-gray-900 rounded-xl p-6 mb-6">
-        <h2 className="text-orange-400 font-bold mb-4">📈 RAGAS / DeepEval Scores</h2>
-        <div className="space-y-4">
-          {metrics.map(m => (
-            <div key={m.label}>
-              <div className="flex justify-between mb-1">
-                <span className="text-gray-300 text-sm">{m.label}</span>
-                <span className="text-white font-semibold text-sm">{m.value}%</span>
+      {/* Metrics — only shown if there's real data */}
+      {metrics.length > 0 && (
+        <div className="bg-gray-900 rounded-xl p-6 mb-6">
+          <h2 className="text-orange-400 font-bold mb-1">📈 Evaluation Scores</h2>
+          <p className="text-gray-500 text-xs mb-4">Derived from RAG cosine similarity and agent execution results</p>
+          <div className="space-y-4">
+            {metrics.map(m => (
+              <div key={m.label}>
+                <div className="flex justify-between mb-1">
+                  <div>
+                    <span className="text-gray-300 text-sm">{m.label}</span>
+                    <p className="text-gray-500 text-xs">{m.desc}</p>
+                  </div>
+                  <span className="text-white font-semibold text-sm ml-4">{m.value}%</span>
+                </div>
+                <div className="w-full bg-gray-800 rounded-full h-3">
+                  <div
+                    className={`${m.color} h-3 rounded-full transition-all duration-1000`}
+                    style={{ width: `${m.value}%` }}
+                  />
+                </div>
               </div>
-              <div className="w-full bg-gray-800 rounded-full h-3">
-                <div
-                  className={`${m.color} h-3 rounded-full transition-all duration-1000`}
-                  style={{ width: `${m.value}%` }}
-                />
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tech stack grid */}
       <h2 className="text-white font-bold text-xl mb-4">🛠 Tech Stack Used</h2>
@@ -138,10 +148,10 @@ export default function EvaluationPage() {
       <div className="bg-gray-900 rounded-xl p-6">
         <h2 className="text-white font-bold mb-3">🏗 Architecture Note</h2>
         <p className="text-gray-400 text-sm leading-relaxed">
-          NutriGuard Pro implements a <span className="text-purple-400">Sequential Multi-Agent Graph</span> using 
-          LangGraph. The Researcher agent populates a <span className="text-yellow-400">SQLite Knowledge Graph</span> via Tavily, 
-          ensuring regional food accuracy. The Chef agent generates plans verified by a <span className="text-emerald-400">RAG Auditor</span> 
-          using a fine-tuned MiniLM model in ChromaDB. Reliability is managed through a <span className="text-blue-400">Multi-Model Fallback Chain</span> 
+          NutriGuard Pro implements a <span className="text-purple-400">Sequential Multi-Agent Graph</span> using
+          LangGraph. The Researcher agent populates a <span className="text-yellow-400">SQLite Knowledge Graph</span> via Tavily,
+          ensuring regional food accuracy. The Chef agent generates plans verified by a <span className="text-emerald-400">RAG Auditor</span>
+          using a fine-tuned MiniLM model in ChromaDB. Reliability is managed through a <span className="text-blue-400">Multi-Model Fallback Chain</span>
           that automatically switches Gemini variants to handle 429/503 API errors during peak demand.
         </p>
       </div>
