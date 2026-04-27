@@ -1,9 +1,15 @@
+---
 title: NutriGuard Pro
 emoji: 🥗
 colorFrom: green
 colorTo: indigo
 sdk: docker
 app_port: 7860
+pinned: false
+---
+
+# NutriGuard Pro: Clinical AI Dietitian for IBD
+(Your existing content here...)
 # NutriGuard Pro: Clinical AI Dietitian for IBD
 
 NutriGuard Pro is an advanced, agentic AI platform built to assist healthcare providers in creating safe, region-specific nutrition plans for **Ulcerative Colitis** and **IBD** patients. 
