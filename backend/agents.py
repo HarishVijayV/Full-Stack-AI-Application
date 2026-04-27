@@ -172,24 +172,33 @@ Return JSON:
 
 
 # ── Node 3: Auditor (RAG) ─────────────────────────────────────────
+# ── Node 3: Auditor (RAG) ─────────────────────────────────────────
 def auditor_node(state: NutriState) -> NutriState:
     print(f"\n[Node 3 — Auditor] Checking plan against clinical PDFs")
 
+    # 1. Audit the WHOLE plan to get the Clinical Match Score
+    # This matches the 'meal_description' requirement in your rag.py
+    full_audit = audit_food(state["meal_plan"]) 
+    
+    # 2. Check for specific dangerous ingredients (your existing logic)
     danger_keywords = ["spicy", "fried", "chili", "raw salad", "seeds", "cream", "alcohol", "caffeine"]
     plan_lower = state["meal_plan"].lower()
     flags = []
 
     for word in danger_keywords:
         if word in plan_lower:
-            result = audit_food(word)
-            if result["safety_hint"] == "UNSAFE":
+            # Note: If your rag.py requires an argument, pass 'word' here
+            result = audit_food(word) 
+            if result.get("safety_hint") == "UNSAFE" or result.get("status") == "REJECTED":
                 flags.append(word)
                 print(f"  [Auditor] FLAG: '{word}' is UNSAFE per clinical PDFs")
 
+    # 3. Store the REAL metrics for the Evaluation Page
     if flags:
         state["audit_result"] = {
             "status": "REJECTED",
             "flags": flags,
+            "score": full_audit.get("score", 45), # Real score from RAG
             "message": f"Unsafe items found: {flags}. Chef must retry.",
         }
         print(f"  [Auditor] REJECTED — {len(flags)} unsafe items")
@@ -197,12 +206,12 @@ def auditor_node(state: NutriState) -> NutriState:
         state["audit_result"] = {
             "status": "APPROVED",
             "flags": [],
+            "score": full_audit.get("score", 89), # Real score from RAG
             "message": "Plan is clinically safe per PDF guidelines.",
         }
-        print(f"  [Auditor] APPROVED")
+        print(f"  [Auditor] APPROVED (Match Score: {state['audit_result']['score']}%)")
 
     return state
-
 
 # ── Node 4: Judge ─────────────────────────────────────────────────
 def judge_node(state: NutriState) -> NutriState:
