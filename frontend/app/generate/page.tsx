@@ -173,22 +173,22 @@ export default function GeneratePage() {
               </div>
               <div
                 ref={logRef}
-                className="bg-gray-900 p-3 h-72 overflow-y-auto font-mono text-xs space-y-1"
+                className="bg-gray-50 border-t border-gray-100 p-3 h-72 overflow-y-auto font-mono text-xs space-y-1"
               >
-                {logs.length === 0 && <p className="text-gray-600">Click Start to begin...</p>}
+                {logs.length === 0 && <p className="text-gray-400">Click Start to begin...</p>}
                 {logs.map((l, i) => (
                   <p
                     key={i}
                     className={
-                      l.includes("ERROR") ? "text-red-400"
-                      : l.includes("approved") ? "text-green-400"
-                      : "text-emerald-300"
+                      l.includes("ERROR") ? "text-red-500"
+                      : l.includes("approved") ? "text-green-600"
+                      : "text-gray-600"
                     }
                   >
                     {l}
                   </p>
                 ))}
-                {running && <p className="text-yellow-400 animate-pulse">Processing...</p>}
+                {running && <p className="text-blue-500 animate-pulse">Processing...</p>}
               </div>
             </div>
 
