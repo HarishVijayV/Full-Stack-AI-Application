@@ -1,15 +1,17 @@
 """
 main.py — NutriGuard Pro API
 Routes:
-  GET  /          
-  
-  
-  as→ health check
-  GET  /research  → Tavily scrape + save foods for a state
-  GET  /graph     → get graph nodes for a state
-  GET  /states    → list all states already in DB
-  GET  /audit     → quick RAG food safety check
-  POST /generate  → full LangGraph workflow (SSE streaming logs)
+  GET  /                  → health check
+  GET  /health/providers  → which LLM providers are alive (no AI call)
+  POST /health/reprobe    → re-run the parallel provider probe on demand
+  GET  /research          → Tavily scrape + save foods for a state
+  GET  /graph             → get graph nodes for a state
+  GET  /states            → list all states already in DB
+  GET  /audit             → quick RAG food safety check
+  POST /generate          → full LangGraph workflow (SSE streaming logs)
+
+Provider chain (Gemini → Groq → OpenRouter → offline template) lives in agents.py
+along with the parallel startup health probe and circuit breaker.
 """
 
 import os
@@ -22,14 +24,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from tavily import TavilyClient
-from google import genai
-from google.genai import types
 from rag import audit_food
-from agents import run_workflow
+from agents import (
+    run_workflow,
+    call_gemini,
+    OFFLINE_LABEL,
+    get_provider_status,
+    probe_all_providers,
+)
 
 load_dotenv()
 
-app = FastAPI(title="NutriGuard Pro", version="1.0.0")
+app = FastAPI(title="NutriGuard Pro", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,36 +48,7 @@ app.add_middleware(
 
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
-# ── Dual API key rotation ─────────────────────────────────────────
-_raw_keys = [
-    os.getenv("GOOGLE_API_KEY_1"),
-    os.getenv("GOOGLE_API_KEY_2"),
-    os.getenv("GOOGLE_API_KEY"),
-]
-seen: set = set()
-API_KEYS = [k for k in _raw_keys if k and not (k in seen or seen.add(k))]
-
-LLM_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.5-flash-lite",
-]
-
-print(f"[main.py] NutriGuard Pro starting — {len(API_KEYS)} Gemini API key(s) loaded")
-
-
-def call_gemini(prompt: str) -> str:
-    """Try every (model, key) combination until one succeeds."""
-    config = types.GenerateContentConfig(response_mime_type="application/json")
-    for model in LLM_MODELS:
-        for key in API_KEYS:
-            try:
-                client = genai.Client(api_key=key)
-                resp = client.models.generate_content(model=model, contents=prompt, config=config)
-                return resp.text
-            except Exception as e:
-                print(f"[main.py] {model} failed: {e}")
-    raise Exception("All Gemini models and keys failed")
+print("[main.py v1.2] NutriGuard Pro starting (provider chain + health probe in agents.py)")
 
 
 # ── SQLite setup ──────────────────────────────────────────────────
@@ -117,7 +94,33 @@ init_db()
 # ── Health ────────────────────────────────────────────────────────
 @app.get("/")
 def health():
-    return {"status": "NutriGuard Pro is online", "version": "1.0.0"}
+    return {"status": "NutriGuard Pro is online", "version": "1.2.0"}
+
+
+@app.get("/health/providers")
+def providers_health():
+    """Return cached health status of every LLM provider. No AI call."""
+    status = get_provider_status()
+    alive = [pid for pid, s in status.items() if s["alive"]]
+    return {
+        "alive_count": len(alive),
+        "total": len(status),
+        "primary": alive[0] if alive else None,
+        "providers": status,
+    }
+
+
+@app.post("/health/reprobe")
+def providers_reprobe():
+    """Re-run the parallel health probe on demand. Useful before a demo."""
+    status = probe_all_providers()
+    alive = [pid for pid, s in status.items() if s["alive"]]
+    return {
+        "alive_count": len(alive),
+        "total": len(status),
+        "primary": alive[0] if alive else None,
+        "providers": status,
+    }
 
 
 # ── List saved states ─────────────────────────────────────────────
@@ -203,23 +206,43 @@ Also add well-known safe traditional dishes from that state you are confident ab
 Only include: steamed, boiled, soft, low-fiber, non-spicy foods.
 Exclude: fried, spicy, raw, high-fiber foods.
 """
-    raw = call_gemini(prompt)
+    raw, _model = call_gemini(prompt)
 
-    try:
-        foods = json.loads(raw)
-    except Exception:
+    foods = []
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                for v in parsed.values():
+                    if isinstance(v, list):
+                        parsed = v
+                        break
+            if isinstance(parsed, list):
+                foods = parsed
+        except Exception:
+            foods = []
+
+    if not foods:
+        print(f"[GET /research] Using hardcoded safe-food seed list for {state}")
         foods = [
             {"food": "Steamed Idli", "category": "Breakfast", "reason": "Steamed, easy to digest"},
             {"food": "Curd Rice", "category": "Lunch", "reason": "Probiotic, gut friendly"},
             {"food": "Khichdi", "category": "Dinner", "reason": "Soft, low fiber"},
             {"food": "Banana", "category": "Snack", "reason": "Soft, easy to digest"},
+            {"food": "Rice Kanji", "category": "Dinner", "reason": "Bland, healing"},
+            {"food": "Soft Dosa", "category": "Breakfast", "reason": "Fermented, mild"},
+            {"food": "Moong Dal", "category": "Lunch", "reason": "Low fiber protein"},
+            {"food": "Stewed Apple", "category": "Snack", "reason": "Soft, soothing"},
         ]
 
     conn = get_db()
     for f in foods:
+        name = f.get("food") or f.get("food_name") or f.get("name")
+        if not name:
+            continue
         conn.execute(
             "INSERT INTO food_nodes (state, category, food_name, reason, is_ulcer_safe) VALUES (?,?,?,?,?)",
-            (state, f.get("category", "General"), f["food"], f.get("reason", ""), 1),
+            (state, f.get("category", "General"), name, f.get("reason", ""), 1),
         )
     conn.commit()
     conn.close()
@@ -247,6 +270,12 @@ def compute_eval_scores(audit_result: dict, iterations: int, model_used: str) ->
         "gemini-2.5-flash": 100,
         "gemini-2.0-flash": 78,
         "gemini-2.5-flash-lite": 55,
+        "groq/llama-3.3-70b-versatile": 88,
+        "groq/llama-3.1-8b-instant": 60,
+        "openrouter/google/gemini-2.0-flash-exp:free": 75,
+        "openrouter/meta-llama/llama-3.3-70b-instruct:free": 80,
+        "openrouter/qwen/qwen-2.5-72b-instruct:free": 72,
+        OFFLINE_LABEL: 50,
         "none": 0,
     }
     model_reliability = model_scores.get(model_used, 70)
@@ -290,11 +319,13 @@ async def generate_plan(patient: PatientData):
         await asyncio.sleep(0.2)
         yield log("Node 3 — Auditor: Checking against clinical PDFs (RAG)...")
         await asyncio.sleep(0.2)
-        yield log("Node 4 — Judge: Gemini generating final verdict...")
+        yield log("Node 4 — Judge: Generating final verdict...")
         await asyncio.sleep(0.2)
 
         try:
-            result = run_workflow(patient.dict())
+            # Pydantic v2: .model_dump() preferred over .dict()
+            payload = patient.model_dump() if hasattr(patient, "model_dump") else patient.dict()
+            result = run_workflow(payload)
             final = result.get("final_plan", "{}")
 
             try:
@@ -338,4 +369,4 @@ async def generate_plan(patient: PatientData):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 7860)))
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
