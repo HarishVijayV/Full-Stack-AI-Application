@@ -24,12 +24,17 @@ CHROMA_PATH = os.path.join(BASE_DIR, "chroma_db")
 print(f"[rag.py] BASE_DIR detected as: {BASE_DIR}")
 print(f"[rag.py] Loading fine-tuned embeddings from absolute path: {MODEL_PATH}")
 
-# Check if model path exists to prevent crash
+# If the fine-tuned model folder is missing, fall back to base model from HF Hub
+# This prevents a crash if the folder wasn't uploaded / not found
 if not os.path.exists(MODEL_PATH):
     print(f"[rag.py] WARNING: Model path {MODEL_PATH} not found locally!")
+    print(f"[rag.py] Falling back to sentence-transformers/all-MiniLM-L6-v2 from HF Hub")
+    _model_name = "sentence-transformers/all-MiniLM-L6-v2"
+else:
+    _model_name = MODEL_PATH
 
 embeddings = HuggingFaceEmbeddings(
-    model_name=MODEL_PATH,
+    model_name=_model_name,
     model_kwargs={"device": "cpu"},
     encode_kwargs={"normalize_embeddings": True},
 )
@@ -39,7 +44,6 @@ db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
 
 print("[rag.py] ChromaDB loaded. Auditor is ready.")
 
-# ... (Rest of your audit_food and index_pdfs functions remain the same)
 
 def audit_food(food_name: str) -> dict:
     """
