@@ -129,7 +129,7 @@ export default function Home() {
         <div className="text-center text-xs text-gray-400 flex items-center justify-center gap-2">
           <span>NutriGuard Pro</span>
           <span>·</span>
-          <span>Cognizant AI Internship</span>
+          <span>Full Stack + Agentic AI</span>
           <span>·</span>
           <span>Focus: Ulcerative Colitis</span>
         </div>
